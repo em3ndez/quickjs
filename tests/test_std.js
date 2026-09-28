@@ -6,7 +6,7 @@ function assert(actual, expected, message) {
     if (arguments.length == 1)
         expected = true;
 
-    if (actual === expected)
+    if (Object.is(actual, expected))
         return;
 
     if (actual !== null && expected !== null
@@ -129,22 +129,36 @@ function test_popen()
 function test_ext_json()
 {
     var expected, input, obj;
-    expected = '{"x":false,"y":true,"z2":null,"a":[1,8,160],"s":"str"}';
+    expected = '{"x":false,"y":true,"z2":null,"a":[1,8,160],"b":"abc\\u000bd","s":"str"}';
     input = `{ "x":false, /*comments are allowed */
                "y":true,  // also a comment
                z2:null, // unquoted property names
                "a":[+1,0o10,0xa0,], // plus prefix, octal, hexadecimal
-               "s":"str",} // trailing comma in objects and arrays
+               "b": "ab\
+c\\vd", // multi-line strings, '\v' escape
+               "s":'str',} // trailing comma in objects and arrays, single quoted string
             `;
     obj = std.parseExtJSON(input);
     assert(JSON.stringify(obj), expected);
+
+    obj = std.parseExtJSON('[Infinity, +Infinity, -Infinity, NaN, +NaN, -NaN, .1, -.2]');
+    assert(obj[0], Infinity);
+    assert(obj[1], Infinity);
+    assert(obj[2], -Infinity);
+    assert(obj[3], NaN);
+    assert(obj[4], NaN);
+    assert(obj[5], NaN);
+    assert(obj[6], 0.1);
+    assert(obj[7], -0.2);
 }
 
 function test_os()
 {
     var fd, fpath, fname, fdir, buf, buf2, i, files, err, fdate, st, link_path;
 
-    assert(os.isatty(0));
+    const stdinIsTTY = !os.exec(["/bin/sh", "-c", "test -t 0"], { usePath: false });
+
+    assert(os.isatty(0), stdinIsTTY, `isatty(STDIN)`);
 
     fdir = "test_tmp_dir";
     fname = "tmp_file.txt";
@@ -253,10 +267,11 @@ function test_os_exec()
 
     pid = os.exec(["cat"], { block: false } );
     assert(pid >= 0);
-    os.kill(pid, os.SIGQUIT);
+    os.kill(pid, os.SIGTERM);
     [ret, status] = os.waitpid(pid, 0);
     assert(ret, pid);
-    assert(status & 0x7f, os.SIGQUIT);
+    assert(status !== 0, true, `expect nonzero exit code (got ${status})`);
+    assert(status & 0x7f, os.SIGTERM);
 }
 
 function test_timer()
@@ -291,6 +306,22 @@ function test_async_gc()
     })();
 }
 
+/* check that the promise async rejection handler is not invoked when
+   the rejection is handled not too late after the promise
+   rejection. */
+function test_async_promise_rejection()
+{
+    var counter = 0;
+    var p1, p2, p3;
+    p1 = Promise.reject();
+    p2 = Promise.reject();
+    p3 = Promise.resolve();
+    p1.catch(() => counter++);
+    p2.catch(() => counter++);
+    p3.then(() => counter++)
+    os.setTimeout(() => { assert(counter, 3) }, 10);
+}
+
 test_printf();
 test_file1();
 test_file2();
@@ -301,4 +332,5 @@ test_os_exec();
 test_timer();
 test_ext_json();
 test_async_gc();
+test_async_promise_rejection();
 

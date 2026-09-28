@@ -2,7 +2,7 @@ function assert(actual, expected, message) {
     if (arguments.length == 1)
         expected = true;
 
-    if (actual === expected)
+    if (Object.is(actual, expected))
         return;
 
     if (actual !== null && expected !== null
@@ -248,6 +248,15 @@ function test_delete()
     assert(err, true, "delete");
 }
 
+function test_constructor()
+{
+    function *G() {}
+    let ex
+    try { new G() } catch (ex_) { ex = ex_ }
+    assert(ex instanceof TypeError)
+    assert(ex.message, "G is not a constructor")
+}
+
 function test_prototype()
 {
     var f = function f() { };
@@ -335,6 +344,13 @@ function test_class()
     assert(S.x === 42);
     assert(S.y === 42);
     assert(S.z === 42);
+
+    class P {
+        get = () => "123";
+        static() { return 42; }
+    }
+    assert(new P().get() === "123");
+    assert(new P().static() === 42);
 };
 
 function test_template()
@@ -361,9 +377,10 @@ function test_template_skip()
 
 function test_object_literal()
 {
-    var x = 0, get = 1, set = 2; async = 3;
-    a = { get: 2, set: 3, async: 4 };
-    assert(JSON.stringify(a), '{"get":2,"set":3,"async":4}');
+    var x = 0, get = 1, set = 2, async = 3;
+    a = { get: 2, set: 3, async: 4, get a(){ return this.get} };
+    assert(JSON.stringify(a), '{"get":2,"set":3,"async":4,"a":2}');
+    assert(a.a === 2);
 
     a = { x, get, set, async };
     assert(JSON.stringify(a), '{"x":0,"get":1,"set":2,"async":3}');
@@ -388,6 +405,24 @@ function test_labels()
         x: { break x; }
     with ({}) x: { break x; };
     while (0) x: { break x; };
+}
+
+function test_labels2()
+{
+    while (1) label: break
+    var i = 0
+    while (i < 3) label: {
+        if (i > 0)
+            break
+        i++
+    }
+    assert(i, 1)
+    for (;;) label: break
+    for (i = 0; i < 3; i++) label: {
+        if (i > 0)
+            break
+    }
+    assert(i, 1)
 }
 
 function test_destructuring()
@@ -596,11 +631,55 @@ function test_optional_chaining()
     assert((a?.["b"])().c, 42);
 }
 
+function test_unicode_ident()
+{
+    var Ãµ = 3;
+    assert(typeof õ, "undefined");
+}
+
+/* check global variable optimization */
+function test_global_var_opt()
+{
+    var v2;
+    (1, eval)('var gvar1'); /* create configurable global variables */
+
+    gvar1 = 1;
+    Object.defineProperty(globalThis, "gvar1", { writable: false });
+    gvar1 = 2;
+    assert(gvar1, 1);
+
+    Object.defineProperty(globalThis, "gvar1", { get: function() { return "hello" },
+                                                 set: function(v) { v2 = v; } });
+    assert(gvar1, "hello");
+    gvar1 = 3;
+    assert(v2, 3);
+
+    Object.defineProperty(globalThis, "gvar1", { value: 4, writable: true, configurable: true });
+    assert(gvar1, 4);
+    gvar1 = 6;
+    
+    delete gvar1;
+    assert_throws(ReferenceError, function() { return gvar1 });
+    gvar1 = 5;
+    assert(gvar1, 5);
+}
+
+function test_number_literals()
+{
+    assert(0.1.a, undefined);
+    assert(0x1.a, undefined);
+    assert(0b1.a, undefined);
+    assert(01.a, undefined);
+    assert(0o1.a, undefined);
+    assert_throws(SyntaxError, () => eval('0.a'));
+}
+
 test_op1();
 test_cvt();
 test_eq();
 test_inc_dec();
 test_op2();
+test_constructor();
 test_delete();
 test_prototype();
 test_arguments();
@@ -610,6 +689,7 @@ test_template_skip();
 test_object_literal();
 test_regexp_skip();
 test_labels();
+test_labels2();
 test_destructuring();
 test_spread();
 test_function_length();
@@ -618,3 +698,6 @@ test_function_expr_name();
 test_parse_semicolon();
 test_optional_chaining();
 test_parse_arrow_function();
+test_unicode_ident();
+test_global_var_opt();
+test_number_literals();
